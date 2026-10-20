@@ -31,10 +31,7 @@ function App() {
     setItinerary('');
 
     try {
-      const response = await axios.post(
-        "https://travel-itinerary-planner-935ejqa71-logic-latitude.vercel.app/api/generate-itinerary",
-        formData
-      );
+      const response = await axios.post("https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary", formData);
       setItinerary(response.data.itinerary_markdown);
     } catch (err) {
       console.error(err);
@@ -59,10 +56,7 @@ function App() {
         itinerary_markdown: itinerary,
       };
 
-      await axios.post(
-        "https://travel-itinerary-planner-935ejqa71-logic-latitude.vercel.app/api/save-trip", 
-        payload
-      );
+      await axios.post("https://travel-itinerary-planner-chi.vercel.app/api/save-trip", payload);
       setSaveStatus("Trip Saved to Supabase! 🥳");
     } catch (err) {
       console.error(err);
