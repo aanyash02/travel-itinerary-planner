@@ -30,7 +30,7 @@ function App() {
     setItinerary("");
 
     try {
-const response = await axios.post("https://travel-itinerary-planner-935ejqa71-logic-latitude.vercel.app/generate-itinerary", formData);
+      const response = await axios.post("https://travel-itinerary-planner-935ejqa71-logic-latitude.vercel.app/api/generate-itinerary", formData);
       setItinerary(response.data.itinerary_markdown);
     } catch (err) {
       console.error(err);
