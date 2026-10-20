@@ -81,7 +81,8 @@ async def generate_itinerary(request: ItineraryRequest):
     """
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # Updated model name to avoid 404 errors
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
         response = model.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}
