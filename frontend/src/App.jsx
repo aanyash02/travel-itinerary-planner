@@ -1,202 +1,111 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-function App() {
+export default function App() {
   const [formData, setFormData] = useState({
     destination: '',
-    duration: '',
-    budget: 'Budget',
-    travel_party: 'Solo',
+    days: '',
+    budget: 'Moderate',
+    travelers: 'Solo',
     interests: ''
   });
-
-  const [itinerary, setItinerary] = useState('');
+  const [itinerary, setItinerary] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saveStatus, setSaveStatus] = useState('');
+  const [error, setError] = useState(null);
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleGenerate = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-    setSaveStatus('');
-    setItinerary('');
+    setError(null);
+    setItinerary(null);
+
+    // EXACT FIX: Convert the string data from the form into the strict types Python expects
+    const payload = {
+      destination: formData.destination,
+      days: parseInt(formData.days, 10), // Converts "5" to 5 to fix the 422 Error
+      budget: formData.budget,
+      travelers: formData.travelers || "Solo",
+      // Convert comma-separated string to an array for the backend
+      interests: formData.interests 
+        ? formData.interests.split(',').map((item) => item.trim()) 
+        : []
+    };
 
     try {
-      const response = await axios.post("https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary", formData);
-      setItinerary(response.data.itinerary_markdown);
-    } catch (err) {
-      console.error(err);
-      setError(
-        err.response?.data?.detail || 
-        err.message || 
-        "Failed to generate itinerary. Please check backend connection."
+      // Send data to your live Vercel backend
+      const response = await axios.post(
+        "https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary",
+        payload
       );
+      
+      // Store the successful response to display it
+      setItinerary(response.data.itinerary);
+    } catch (err) {
+      console.error("API Error:", err);
+      setError("Failed to generate itinerary. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveStatus('');
-    setError('');
-
-    try {
-      const payload = {
-        ...formData,
-        itinerary_markdown: itinerary,
-      };
-
-      await axios.post("https://travel-itinerary-planner-chi.vercel.app/api/save-trip", payload);
-      setSaveStatus("Trip Saved to Supabase! 🥳");
-    } catch (err) {
-      console.error(err);
-      setError(
-        err.response?.data?.detail || 
-        "Error saving trip. Please check backend connection."
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <div style={{ maxWidth: '800px', margin: '40px auto', fontFamily: 'sans-serif', padding: '0 20px' }}>
-      <h1 style={{ textAlign: 'center' }}>✈️ Personalized Travel Itinerary Planner</h1>
-      <p style={{ textAlign: 'center', color: '#666' }}>Full-Stack AI Travel Builder (React + FastAPI)</p>
-
-      <form onSubmit={handleGenerate} style={{ background: '#f9f9f9', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <label>📍 Destination:</label>
-          <input
-            type="text"
-            name="destination"
-            value={formData.destination}
-            onChange={handleChange}
-            required
-            style={{ width: '100%', padding: '8px', marginTop: '5px', boxSizing: 'border-box' }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-          <div style={{ flex: 1 }}>
-            <label>📅 Duration (Days):</label>
-            <input
-              type="number"
-              name="duration"
-              value={formData.duration}
-              onChange={handleChange}
-              required
-              style={{ width: '100%', padding: '8px', marginTop: '5px', boxSizing: 'border-box' }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label>💰 Budget:</label>
-            <select
-              name="budget"
-              value={formData.budget}
-              onChange={handleChange}
-              style={{ width: '100%', padding: '8px', marginTop: '5px', boxSizing: 'border-box' }}
-            >
-              <option value="Budget">Budget</option>
-              <option value="Moderate">Moderate</option>
-              <option value="Luxury">Luxury</option>
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-          <div style={{ flex: 1 }}>
-            <label>👥 Travel Party:</label>
-            <select
-              name="travel_party"
-              value={formData.travel_party}
-              onChange={handleChange}
-              style={{ width: '100%', padding: '8px', marginTop: '5px', boxSizing: 'border-box' }}
-            >
-              <option value="Solo">Solo</option>
-              <option value="Couple">Couple</option>
-              <option value="Family">Family</option>
-              <option value="Group of Friends">Group of Friends</option>
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label>🎯 Specific Interests:</label>
-            <input
-              type="text"
-              name="interests"
-              placeholder="e.g. Food, Museums, Beaches"
-              value={formData.interests}
-              onChange={handleChange}
-              style={{ width: '100%', padding: '8px', marginTop: '5px', boxSizing: 'border-box' }}
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: '100%',
-            padding: '12px',
-            backgroundColor: '#2563eb',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            cursor: loading ? 'not-allowed' : 'pointer'
-          }}
-        >
-          {loading ? '✨ Generating Itinerary...' : '✨ Generate Trip Plan'}
+    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px' }}>
+      <h1>✨ AI Travel Itinerary Planner</h1>
+      
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <input 
+          type="text" 
+          name="destination" 
+          placeholder="Where to? (e.g., Paris)" 
+          value={formData.destination} 
+          onChange={handleChange} 
+          required 
+        />
+        <input 
+          type="number" 
+          name="days" 
+          placeholder="How many days? (e.g., 5)" 
+          value={formData.days} 
+          onChange={handleChange} 
+          required 
+        />
+        <select name="budget" value={formData.budget} onChange={handleChange}>
+          <option value="Budget">Budget</option>
+          <option value="Moderate">Moderate</option>
+          <option value="Luxury">Luxury</option>
+        </select>
+        <select name="travelers" value={formData.travelers} onChange={handleChange}>
+          <option value="Solo">Solo</option>
+          <option value="Couple">Couple</option>
+          <option value="Family">Family</option>
+          <option value="Friends">Friends</option>
+        </select>
+        <input 
+          type="text" 
+          name="interests" 
+          placeholder="Interests (e.g., art, food, history)" 
+          value={formData.interests} 
+          onChange={handleChange} 
+        />
+        <button type="submit" disabled={loading}>
+          {loading ? "Generating..." : "Generate Trip Plan"}
         </button>
       </form>
 
-      {error && (
-        <div style={{ padding: '15px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px', marginBottom: '20px' }}>
-          {error}
-        </div>
-      )}
+      {error && <p style={{ color: 'red' }}>{error}</p>}
 
       {itinerary && (
-        <div style={{ background: '#fff', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
-          <h2>Generated Itinerary</h2>
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', background: '#f3f4f6', padding: '15px', borderRadius: '6px' }}>
-            {itinerary}
+        <div style={{ marginTop: '20px' }}>
+          <h2>Your Itinerary</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', background: '#f4f4f4', padding: '10px' }}>
+            {JSON.stringify(itinerary, null, 2)}
           </pre>
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#16a34a',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontWeight: 'bold',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              marginTop: '10px'
-            }}
-          >
-            {saving ? 'Saving...' : '💾 Save Trip to Supabase'}
-          </button>
-
-          {saveStatus && (
-            <p style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '10px' }}>{saveStatus}</p>
-          )}
         </div>
       )}
     </div>
   );
 }
-
-export default App;
