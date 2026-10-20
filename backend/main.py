@@ -66,7 +66,7 @@ async def generate_itinerary(request: ItineraryRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(
             status_code=500, 
-            detail="GEMINI_API_KEY is not configured in Vercel environment variables."
+            detail="GEMINI_API_KEY is missing from environment variables."
         )
 
     prompt = f"""
@@ -75,7 +75,8 @@ async def generate_itinerary(request: ItineraryRequest):
     Travelers: {request.travelers}.
     Interests: {', '.join(request.interests) if request.interests else 'General sightseeing'}.
 
-    Return the response as a JSON array where each object represents a day with:
+    Return ONLY a valid JSON array of objects representing days.
+    Each object must have:
     - "day": integer day number
     - "title": highlight title of the day
     - "activities": list of strings detailing morning, afternoon, and evening plans
@@ -89,15 +90,35 @@ async def generate_itinerary(request: ItineraryRequest):
             generation_config={"response_mime_type": "application/json"}
         )
         
-        itinerary_data = json.loads(response.text)
+        # Clean text response in case code blocks were included
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+
+        itinerary_data = json.loads(raw_text)
+        
         return {
+            "status": "success",
             "destination": request.destination,
             "days": request.days,
             "itinerary": itinerary_data
         }
 
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to parse Gemini AI response as JSON: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate itinerary: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Gemini API Error: {str(e)}"
+        )
 
 # Save trip endpoint for Supabase integration
 class SaveTripRequest(BaseModel):
