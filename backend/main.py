@@ -81,8 +81,8 @@ async def generate_itinerary(request: ItineraryRequest):
     """
 
     try:
-        # Using gemini-2.0-flash for robust, stable generation
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # Updated to use gemini-1.5-flash
+        model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}
