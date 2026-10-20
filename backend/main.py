@@ -1,33 +1,29 @@
 import os
 import json
+from typing import Union, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 from supabase import create_client, Client
 
-# Initialize FastAPI application
 app = FastAPI(title="AI Travel Itinerary Planner API")
 
-# Configure CORS middleware to allow requests from your frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust to frontend URL in production if needed
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Safely retrieve environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Safely initialize Gemini AI client
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# Safely initialize Supabase client
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -35,15 +31,13 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         print(f"Error initializing Supabase client: {e}")
 
-# Request model for itinerary generation
 class ItineraryRequest(BaseModel):
     destination: str
     days: int
     budget: str
     travelers: str = "Solo"
-    interests: list[str] = []
+    interests: Union[List[str], str] = []
 
-# Root route to prevent 404 on base backend URL
 @app.get("/")
 def read_root():
     return {
@@ -51,7 +45,6 @@ def read_root():
         "message": "FastAPI Travel Itinerary Backend is running live on Vercel."
     }
 
-# Health check route
 @app.get("/api/health")
 def health_check():
     return {
@@ -60,20 +53,24 @@ def health_check():
         "supabase_configured": bool(supabase is not None)
     }
 
-# Endpoint to generate trip itinerary using Gemini API
 @app.post("/api/generate-itinerary")
 async def generate_itinerary(request: ItineraryRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(
             status_code=500, 
-            detail="GEMINI_API_KEY is missing from environment variables."
+            detail="GEMINI_API_KEY is missing from Vercel environment variables."
         )
+
+    if isinstance(request.interests, list):
+        interests_str = ", ".join(request.interests)
+    else:
+        interests_str = str(request.interests)
 
     prompt = f"""
     Create a detailed {request.days}-day travel itinerary for {request.destination}.
     Budget level: {request.budget}.
     Travelers: {request.travelers}.
-    Interests: {', '.join(request.interests) if request.interests else 'General sightseeing'}.
+    Interests: {interests_str if interests_str else 'General sightseeing'}.
 
     Return ONLY a valid JSON array of objects representing days.
     Each object must have:
@@ -90,7 +87,6 @@ async def generate_itinerary(request: ItineraryRequest):
             generation_config={"response_mime_type": "application/json"}
         )
         
-        # Clean text response in case code blocks were included
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
@@ -98,9 +94,8 @@ async def generate_itinerary(request: ItineraryRequest):
             raw_text = raw_text[3:]
         if raw_text.endswith("```"):
             raw_text = raw_text[:-3]
-        raw_text = raw_text.strip()
-
-        itinerary_data = json.loads(raw_text)
+        
+        itinerary_data = json.loads(raw_text.strip())
         
         return {
             "status": "success",
@@ -120,7 +115,6 @@ async def generate_itinerary(request: ItineraryRequest):
             detail=f"Gemini API Error: {str(e)}"
         )
 
-# Save trip endpoint for Supabase integration
 class SaveTripRequest(BaseModel):
     destination: str
     days: int
@@ -143,4 +137,7 @@ async def save_trip(request: SaveTripRequest):
 
         return {"status": "success", "data": data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save trip: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to save trip: {str(e)}"
+        )
