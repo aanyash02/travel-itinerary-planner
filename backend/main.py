@@ -1,149 +1,95 @@
 import os
-import traceback
-
-import google.generativeai as genai
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from supabase import Client, create_client
+from typing import Optional
+import google.generativeai as genai
+from supabase import create_client, Client
 
-# ------------------------------------------------------------------------------
-# 1. Environment & API Key Configuration
-# ------------------------------------------------------------------------------
-load_dotenv()
+app = FastAPI()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Initialize Gemini Client
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-else:
-    model = None
-    print(
-        "⚠️ Warning: GEMINI_API_KEY is not set. AI generation will not work."
-    )
-
-# Initialize Supabase Client
-supabase: Client | None = None
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    except Exception as e:
-        print(f"⚠️ Warning: Failed to initialize Supabase client: {e}")
-else:
-    print(
-        "⚠️ Warning: SUPABASE_URL or SUPABASE_KEY is not set. Saving trips will not work."
-    )
-
-# ------------------------------------------------------------------------------
-# 2. FastAPI Application Setup & CORS Configuration
-# ------------------------------------------------------------------------------
-app = FastAPI(title="AI Travel Itinerary Planner API")
-
-# Allow requests from Vite React frontend
+# Enable CORS for all origins (allowing requests from Vercel frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust to specific origin if needed (e.g. ["http://localhost:5173", "http://localhost:5177"])
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Initialize Clients
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ------------------------------------------------------------------------------
-# 3. Pydantic Models for Request Validation
-# ------------------------------------------------------------------------------
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
 class ItineraryRequest(BaseModel):
     destination: str
     duration: int
     budget: str
-    travelers: str
-    interests: str
+    travel_party: str
+    interests: Optional[str] = ""
 
 
-class TripData(BaseModel):
+class SaveTripRequest(BaseModel):
     destination: str
     duration: int
     budget: str
-    travelers: str
-    interests: str
+    travel_party: str
+    interests: Optional[str] = ""
     itinerary_markdown: str
 
 
-# ------------------------------------------------------------------------------
-# 4. API Endpoints
-# ------------------------------------------------------------------------------
-@app.get("/")
-def read_root():
-    return {"message": "Travel Itinerary Planner API is running!"}
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.post("/api/generate-itinerary")
-async def generate_itinerary(request: ItineraryRequest):
-    if not model:
-        raise HTTPException(
-            status_code=500,
-            detail="Gemini API is not configured. Check backend/.env file.",
-        )
+def generate_itinerary(req: ItineraryRequest):
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is missing on server environment.")
 
     prompt = f"""
-    Create a detailed, day-by-day travel itinerary for a trip with the following details:
-    - Destination: {request.destination}
-    - Duration: {request.duration} days
-    - Budget Level: {request.budget}
-    - Travelers: {request.travelers}
-    - Interests: {request.interests}
+    Create a detailed day-by-day travel itinerary for a trip to {req.destination}.
+    - Duration: {req.duration} days
+    - Budget Level: {req.budget}
+    - Travel Party: {req.travel_party}
+    - Interests/Preferences: {req.interests}
 
-    Requirements:
-    1. Organize the output cleanly using Markdown.
-    2. Provide a breakdown for each day (Morning, Afternoon, Evening).
-    3. Include estimated budget tips, local cuisine recommendations, and essential travel tips.
-    4. Format key highlights using bullet points and bold headers.
+    Provide recommendations for sights, local food, and practical daily timing in clear Markdown format.
     """
 
     try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
-        return {"itinerary": response.text}
+        return {"itinerary_markdown": response.text}
     except Exception as e:
-        print("❌ GEMINI GENERATION ERROR:")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, detail=f"Failed to generate itinerary: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Gemini API Error: {str(e)}")
 
 
 @app.post("/api/save-trip")
-async def save_trip(trip: TripData):
+def save_trip(req: SaveTripRequest):
     if not supabase:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase client is not initialized. Check backend/.env file.",
-        )
+        raise HTTPException(status_code=500, detail="Supabase credentials missing on server environment.")
 
     try:
-        # Build dictionary and explicitly cast duration to integer
         data = {
-            "destination": trip.destination,
-            "duration": int(trip.duration),
-            "budget": trip.budget,
-            "travelers": trip.travelers,
-            "interests": trip.interests,
-            "itinerary_markdown": trip.itinerary_markdown,
+            "destination": req.destination,
+            "duration": req.duration,
+            "budget": req.budget,
+            "travel_party": req.travel_party,
+            "interests": req.interests,
+            "itinerary_markdown": req.itinerary_markdown,
         }
-
-        # Insert record into Supabase 'trips' table
         response = supabase.table("trips").insert(data).execute()
-        print("✅ SUPABASE INSERT SUCCESS:", response.data)
-
         return {"status": "success", "data": response.data}
-
     except Exception as e:
-        print("❌ SUPABASE INSERT ERROR DETAILS:")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, detail=f"Database insert error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Supabase Storage Error: {str(e)}")
