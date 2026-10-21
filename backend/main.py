@@ -12,7 +12,7 @@ from supabase import create_client, Client
 
 
 # --------------------------------------------------
-# Configuration
+# 1. Create the FastAPI application
 # --------------------------------------------------
 
 app = FastAPI(
@@ -21,16 +21,26 @@ app = FastAPI(
     description="AI-powered personalized travel planning API",
 )
 
-frontend_url = os.getenv(
-    "FRONTEND_URL",
-    "http://localhost:5173",
-)
+
+# --------------------------------------------------
+# 2. Configure CORS for the frontend
+# --------------------------------------------------
 
 allowed_origins = [
-    origin.strip()
+    "https://travel-itinerary-planner-q2kx.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+frontend_url = os.getenv("FRONTEND_URL", "")
+
+allowed_origins.extend(
+    origin.strip().rstrip("/")
     for origin in frontend_url.split(",")
     if origin.strip()
-]
+)
+
+allowed_origins = list(dict.fromkeys(allowed_origins))
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,12 +52,13 @@ app.add_middleware(
 
 
 # --------------------------------------------------
-# Supabase configuration
+# 3. Configure Supabase
 # --------------------------------------------------
 
 supabase: Client | None = None
 
 supabase_url = os.getenv("SUPABASE_URL")
+
 supabase_key = (
     os.getenv("SUPABASE_SECRET_KEY")
     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -58,7 +69,7 @@ if supabase_url and supabase_key:
 
 
 # --------------------------------------------------
-# Request models
+# 4. Validate incoming trip requests
 # --------------------------------------------------
 
 class TripRequest(BaseModel):
@@ -89,7 +100,7 @@ class SaveTripRequest(BaseModel):
 
 
 # --------------------------------------------------
-# Health checks
+# 5. Basic API and health-check routes
 # --------------------------------------------------
 
 @app.get("/")
@@ -106,7 +117,7 @@ def health():
 
 
 # --------------------------------------------------
-# Gemini AI integration
+# 6. Generate an itinerary using Google Gemini
 # --------------------------------------------------
 
 def generate_with_gemini(trip: TripRequest) -> dict:
@@ -119,60 +130,74 @@ def generate_with_gemini(trip: TripRequest) -> dict:
         )
 
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
     days_count = (trip.end_date - trip.start_date).days + 1
 
     prompt = f"""
-You are an intelligent travel itinerary planner.
+You are WanderWise, an expert personalized travel planner.
 
-Create a practical, personalized trip using these preferences:
+Create a practical travel itinerary using the following trip details:
 
 Destination: {trip.destination}
-Start date: {trip.start_date}
-End date: {trip.end_date}
-Number of days: {days_count}
-Budget: {trip.budget} {trip.currency}
-Travelers: {trip.travelers}
+Start date: {trip.start_date.isoformat()}
+End date: {trip.end_date.isoformat()}
+Number of calendar days: {days_count}
+Total budget: {trip.budget} {trip.currency}
+Number of travelers: {trip.travelers}
 Travel style: {trip.travel_style}
-Interests: {", ".join(trip.interests)}
+Interests: {", ".join(trip.interests) if trip.interests else "General sightseeing"}
 
-Return valid JSON only, with this structure:
+Requirements:
+1. Return exactly {days_count} itinerary days.
+2. Personalize the plan to the destination, budget, travel style, and interests.
+3. Give each day a date, a short title, and an activities list.
+4. Each activity should include a time, name, description, estimated cost,
+   and location.
+5. Include practical local transportation suggestions.
+6. Include food recommendations and useful travel tips.
+7. Estimate costs in {trip.currency}.
+8. Keep the estimated total trip cost within the supplied budget when feasible.
+9. Do not claim that reservations or bookings have been made.
+10. Return valid JSON only, without Markdown fences or extra commentary.
+
+Use this JSON structure:
 {{
-  "title": "Trip title",
   "destination": "{trip.destination}",
+  "start_date": "{trip.start_date.isoformat()}",
+  "end_date": "{trip.end_date.isoformat()}",
   "currency": "{trip.currency}",
+  "travelers": {trip.travelers},
+  "travel_style": "{trip.travel_style}",
+  "summary": "A short overview of the trip",
+  "estimated_total_cost": 0,
+  "budget_breakdown": {{
+    "accommodation": 0,
+    "food": 0,
+    "transportation": 0,
+    "activities": 0,
+    "other": 0
+  }},
   "days": [
     {{
       "day": 1,
-      "date": "{trip.start_date}",
-      "theme": "Day theme",
+      "date": "{trip.start_date.isoformat()}",
+      "title": "Day title",
       "activities": [
         {{
-          "time": "09:00",
+          "time": "09:00 AM",
           "name": "Activity name",
-          "description": "Activity details",
-          "category": "sightseeing",
-          "estimated_cost": 500,
-          "duration_minutes": 90,
-          "transport": "Suggested transport"
+          "description": "What to do",
+          "location": "Place or area",
+          "estimated_cost": 0,
+          "transportation": "How to get there"
         }}
       ]
     }}
   ],
-  "estimated_total_cost": 5000,
-  "budget_notes": ["Budget advice"],
-  "travel_tips": ["Practical travel tip"]
+  "travel_tips": [
+    "A useful destination-specific tip"
+  ]
 }}
-
-Requirements:
-- Generate exactly {days_count} days in chronological order.
-- Match each date to the correct calendar date.
-- Adapt activities to the travel style and interests.
-- Include meals, breaks, and transportation suggestions.
-- Treat the budget as the total trip budget for all travelers.
-- Use {trip.currency} for all cost estimates.
-- Do not invent verification of opening hours, prices, or availability.
-- Clearly treat unverified travel times and prices as estimates.
-- Do not exceed the budget when reasonably feasible.
 """
 
     url = (
@@ -198,19 +223,22 @@ Requirements:
             },
             timeout=60.0,
         )
-        response.raise_for_status()
 
+        response.raise_for_status()
         result = response.json()
+
         text = result["candidates"][0]["content"]["parts"][0]["text"]
         itinerary = json.loads(text)
 
-        # Validate essential output structure.
         days = itinerary.get("days")
 
         if not isinstance(days, list) or len(days) != days_count:
             raise ValueError("AI returned an incorrect number of days")
 
         for day in days:
+            if not isinstance(day, dict):
+                raise ValueError("AI returned an invalid day")
+
             if not isinstance(day.get("activities"), list):
                 raise ValueError("AI returned an invalid activity list")
 
@@ -218,13 +246,18 @@ Requirements:
 
     except httpx.HTTPStatusError as exc:
         print("Gemini API error:", exc.response.text[:1000])
+
         raise HTTPException(
             status_code=502,
-            detail="The AI provider rejected the request. Check the API key and model.",
+            detail=(
+                "The AI provider rejected the request. "
+                "Check the Gemini API key and model configuration."
+            ),
         ) from exc
 
     except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
         print("Itinerary generation error:", str(exc))
+
         raise HTTPException(
             status_code=502,
             detail="Could not generate a valid itinerary. Please try again.",
@@ -232,7 +265,7 @@ Requirements:
 
 
 # --------------------------------------------------
-# Generate itinerary
+# 7. Generate-trip API endpoints
 # --------------------------------------------------
 
 @app.post("/api/trips/generate")
@@ -247,7 +280,7 @@ def generate_itinerary(trip: TripRequest):
 
 
 # --------------------------------------------------
-# Save itinerary to Supabase
+# 8. Save a trip to Supabase
 # --------------------------------------------------
 
 @app.post("/api/save-trip")
@@ -261,11 +294,13 @@ def save_trip(request: SaveTripRequest):
     try:
         result = (
             supabase.table("trips")
-            .insert({
-                "destination": request.destination,
-                "days": request.days,
-                "itinerary": request.itinerary_data,
-            })
+            .insert(
+                {
+                    "destination": request.destination,
+                    "days": request.days,
+                    "itinerary": request.itinerary_data,
+                }
+            )
             .execute()
         )
 
@@ -276,6 +311,7 @@ def save_trip(request: SaveTripRequest):
 
     except Exception as exc:
         print("Supabase save error:", str(exc))
+
         raise HTTPException(
             status_code=500,
             detail="Unable to save the trip",
