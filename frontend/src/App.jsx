@@ -23,26 +23,22 @@ export default function App() {
     setError(null);
     setItinerary(null);
 
-    // EXACT FIX: Convert the string data from the form into the strict types Python expects
     const payload = {
       destination: formData.destination,
-      days: parseInt(formData.days, 10), // Converts "5" to 5 to fix the 422 Error
+      days: parseInt(formData.days, 10),
       budget: formData.budget,
       travelers: formData.travelers || "Solo",
-      // Convert comma-separated string to an array for the backend
       interests: formData.interests 
         ? formData.interests.split(',').map((item) => item.trim()) 
         : []
     };
 
     try {
-      // Send data to your live Vercel backend
       const response = await axios.post(
-        "https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary",
+        "[https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary](https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary)",
         payload
       );
       
-      // Store the successful response to display it
       setItinerary(response.data.itinerary);
     } catch (err) {
       console.error("API Error:", err);
@@ -53,57 +49,95 @@ export default function App() {
   };
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px' }}>
+    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>✨ AI Travel Itinerary Planner</h1>
       
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <input 
-          type="text" 
-          name="destination" 
-          placeholder="Where to? (e.g., Paris)" 
-          value={formData.destination} 
-          onChange={handleChange} 
-          required 
-        />
-        <input 
-          type="number" 
-          name="days" 
-          placeholder="How many days? (e.g., 5)" 
-          value={formData.days} 
-          onChange={handleChange} 
-          required 
-        />
-        <select name="budget" value={formData.budget} onChange={handleChange}>
-          <option value="Budget">Budget</option>
-          <option value="Moderate">Moderate</option>
-          <option value="Luxury">Luxury</option>
-        </select>
-        <select name="travelers" value={formData.travelers} onChange={handleChange}>
-          <option value="Solo">Solo</option>
-          <option value="Couple">Couple</option>
-          <option value="Family">Family</option>
-          <option value="Friends">Friends</option>
-        </select>
-        <input 
-          type="text" 
-          name="interests" 
-          placeholder="Interests (e.g., art, food, history)" 
-          value={formData.interests} 
-          onChange={handleChange} 
-        />
-        <button type="submit" disabled={loading}>
-          {loading ? "Generating..." : "Generate Trip Plan"}
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px' }}>Destination:</label>
+          <input 
+            type="text" 
+            name="destination" 
+            placeholder="e.g., India" 
+            value={formData.destination} 
+            onChange={handleChange} 
+            required 
+            style={{ width: '100%', padding: '8px' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px' }}>Days:</label>
+          <input 
+            type="number" 
+            name="days" 
+            placeholder="e.g., 2" 
+            value={formData.days} 
+            onChange={handleChange} 
+            required 
+            style={{ width: '100%', padding: '8px' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px' }}>Budget:</label>
+          <select name="budget" value={formData.budget} onChange={handleChange} style={{ width: '100%', padding: '8px' }}>
+            <option value="Budget">Budget</option>
+            <option value="Moderate">Moderate</option>
+            <option value="Luxury">Luxury</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px' }}>Travelers:</label>
+          <select name="travelers" value={formData.travelers} onChange={handleChange} style={{ width: '100%', padding: '8px' }}>
+            <option value="Solo">Solo</option>
+            <option value="Couple">Couple</option>
+            <option value="Family">Family</option>
+            <option value="Friends">Friends</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px' }}>Interests:</label>
+          <input 
+            type="text" 
+            name="interests" 
+            placeholder="e.g., Culture, Local Food, Temple visits" 
+            value={formData.interests} 
+            onChange={handleChange} 
+            style={{ width: '100%', padding: '8px' }}
+          />
+        </div>
+
+        <button type="submit" disabled={loading} style={{ padding: '10px', cursor: 'pointer', marginTop: '8px' }}>
+          {loading ? "Generating Trip Plan..." : "Generate Trip Plan"}
         </button>
       </form>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p style={{ color: 'red', marginTop: '16px' }}>{error}</p>}
 
       {itinerary && (
-        <div style={{ marginTop: '20px' }}>
+        <div style={{ marginTop: '24px' }}>
           <h2>Your Itinerary</h2>
-          <pre style={{ whiteSpace: 'pre-wrap', background: '#f4f4f4', padding: '10px' }}>
-            {JSON.stringify(itinerary, null, 2)}
-          </pre>
+          {Array.isArray(itinerary) ? (
+            itinerary.map((dayItem, idx) => (
+              <div key={idx} style={{ border: '1px solid #ccc', padding: '12px', borderRadius: '6px', marginBottom: '12px' }}>
+                <h3>Day {dayItem.day}: {dayItem.title}</h3>
+                <p><strong>Estimated Cost:</strong> {dayItem.estimated_cost}</p>
+                <h4>Activities:</h4>
+                <ul>
+                  {dayItem.activities?.map((act, aIdx) => (
+                    <li key={aIdx}>{act}</li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          ) : (
+            <pre style={{ whiteSpace: 'pre-wrap', background: '#f4f4f4', padding: '12px' }}>
+              {JSON.stringify(itinerary, null, 2)}
+            </pre>
+          )}
         </div>
       )}
     </div>
