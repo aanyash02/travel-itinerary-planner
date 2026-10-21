@@ -34,15 +34,14 @@ export default function App() {
     };
 
     try {
-      const response = await axios.post(
-        "[https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary](https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary)",
-        payload
-      );
+      // Relative URL ensures it hits the same domain where the frontend is hosted
+      const response = await axios.post("/api/generate-itinerary", payload);
       
       setItinerary(response.data.itinerary);
     } catch (err) {
       console.error("API Error:", err);
-      setError("Failed to generate itinerary. Please try again.");
+      const detailMsg = err.response?.data?.detail || err.message || "Failed to generate itinerary. Please try again.";
+      setError(detailMsg);
     } finally {
       setLoading(false);
     }
@@ -115,7 +114,11 @@ export default function App() {
         </button>
       </form>
 
-      {error && <p style={{ color: 'red', marginTop: '16px' }}>{error}</p>}
+      {error && (
+        <div style={{ color: '#d9534f', marginTop: '16px', background: '#fdf7f7', border: '1px solid #d9534f', padding: '10px', borderRadius: '4px' }}>
+          <strong>Error Details:</strong> {error}
+        </div>
+      )}
 
       {itinerary && (
         <div style={{ marginTop: '24px' }}>

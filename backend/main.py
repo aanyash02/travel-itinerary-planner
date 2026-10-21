@@ -1,10 +1,11 @@
 import os
 import json
+import urllib.request
+import urllib.error
 from typing import Union, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
 from supabase import create_client, Client
 
 app = FastAPI(title="AI Travel Itinerary Planner API")
@@ -20,9 +21,6 @@ app.add_middleware(
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
@@ -53,6 +51,47 @@ def health_check():
         "supabase_configured": bool(supabase is not None)
     }
 
+def call_gemini_api(prompt_text: str) -> str:
+    """Direct REST call to Google Gemini API using standard urllib."""
+    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    last_error = ""
+
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt_text}]
+            }],
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 0.7,
+                "maxOutputTokens": 1000
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                text_response = result["candidates"][0]["content"]["parts"][0]["text"]
+                return text_response
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8")
+            last_error = f"Model {model_name} HTTP {e.code}: {error_body}"
+            continue
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    raise Exception(f"All Gemini models failed. Details: {last_error}")
+
 @app.post("/api/generate-itinerary")
 async def generate_itinerary(request: ItineraryRequest):
     if not GEMINI_API_KEY:
@@ -81,32 +120,8 @@ async def generate_itinerary(request: ItineraryRequest):
     """
 
     try:
-        # THE ULTIMATE FIX: Dynamically fetch allowed models for your API key
-        available_models = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
+        raw_text = call_gemini_api(prompt).strip()
         
-        if not available_models:
-            raise HTTPException(status_code=500, detail="No generative models authorized for this API key.")
-
-        # Automatically pick the best available 'flash' model, or fallback to whatever is available
-        target_model_name = available_models[0]
-        for m in available_models:
-            if "flash" in m.lower() and "vision" not in m.lower():
-                target_model_name = m
-                break
-        
-        # Clean the prefix for the GenerativeModel class
-        target_model_name = target_model_name.replace("models/", "")
-
-        model = genai.GenerativeModel(target_model_name)
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
         if raw_text.startswith("```"):
@@ -120,19 +135,18 @@ async def generate_itinerary(request: ItineraryRequest):
             "status": "success",
             "destination": request.destination,
             "days": request.days,
-            "itinerary": itinerary_data,
-            "model_used": target_model_name # Logs exactly which model succeeded
+            "itinerary": itinerary_data
         }
 
     except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to parse AI response as JSON. Try again."
+            detail=f"Failed to parse AI response as JSON: {str(e)}"
         )
     except Exception as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Gemini API Error: {str(e)}"
+            detail=f"Gemini API Failure: {str(e)}"
         )
 
 class SaveTripRequest(BaseModel):
