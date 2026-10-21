@@ -1,271 +1,659 @@
-import React, { useState } from 'react';
-import axios from 'axios';
 
-const BACKEND_URL = "https://travel-itinerary-planner-chi.vercel.app";
+import { useState } from "react";
+import "./App.css";
+
+const API_URL = (
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
+).replace(/\/$/, "");
+
+const initialForm = {
+  destination: "",
+  start_date: "",
+  end_date: "",
+  budget: 10000,
+  currency: "INR",
+  travelers: 1,
+  travel_style: "balanced",
+  interests: ["sightseeing", "food"],
+};
+
+const interestOptions = [
+  "sightseeing",
+  "food",
+  "culture",
+  "adventure",
+  "nature",
+  "shopping",
+  "relaxation",
+  "nightlife",
+];
 
 export default function App() {
-  const [formData, setFormData] = useState({
-    destination: '',
-    days: '',
-    budget: 'Moderate',
-    travelers: 'Solo',
-    interests: ''
-  });
+  const [form, setForm] = useState(initialForm);
   const [itinerary, setItinerary] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [saveStatus, setSaveStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [savedTrips, setSavedTrips] = useState([]);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  function updateForm(field, value) {
+    setForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  function toggleInterest(interest) {
+    setForm((previous) => ({
+      ...previous,
+      interests: previous.interests.includes(interest)
+        ? previous.interests.filter((item) => item !== interest)
+        : [...previous.interests, interest],
+    }));
+  }
+
+  async function generateTrip(event) {
+    event.preventDefault();
+
     setLoading(true);
-    setError(null);
+    setError("");
+    setNotice("");
     setItinerary(null);
-    setSaveStatus('');
-
-    const payload = {
-      destination: formData.destination,
-      days: parseInt(formData.days, 10),
-      budget: formData.budget,
-      travelers: formData.travelers || "Solo",
-      interests: formData.interests 
-        ? formData.interests.split(',').map((item) => item.trim()) 
-        : []
-    };
 
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/generate-itinerary`, payload);
-      setItinerary(response.data.itinerary);
+      const response = await fetch(`${API_URL}/api/trips/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...form,
+          budget: Number(form.budget),
+          travelers: Number(form.travelers),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.detail || "Unable to generate your itinerary."
+        );
+      }
+
+      const generated = result.itinerary || result.data;
+
+      if (!generated || !Array.isArray(generated.days)) {
+        throw new Error("The server returned an invalid itinerary.");
+      }
+
+      setItinerary(generated);
+      setNotice("Your personalized itinerary is ready!");
     } catch (err) {
-      console.error("API Error:", err);
-      const detailMsg = err.response?.data?.detail || err.message || "Failed to generate itinerary. Please try again.";
-      setError(detailMsg);
+      setError(
+        err.message ||
+          "Could not connect to the backend. Check your API URL."
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleSaveTrip = async () => {
+  async function saveTrip() {
+    if (!itinerary) {
+      setError("Generate an itinerary before saving.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setNotice("");
+
     try {
-      setSaveStatus("Saving to cloud...");
-      await axios.post(`${BACKEND_URL}/api/save-trip`, {
-        destination: formData.destination,
-        days: parseInt(formData.days, 10),
-        itinerary_data: { itinerary }
+      const response = await fetch(`${API_URL}/api/save-trip`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          destination: itinerary.destination || form.destination,
+          days: itinerary.days.length,
+          itinerary_data: itinerary,
+        }),
       });
-      setSaveStatus("Trip saved successfully! 🎉");
-    } catch (err) {
-      setSaveStatus("Trip plan stored locally & viewable!");
-    }
-  };
 
-  const getDaysArray = (data) => {
-    if (!data) return [];
-    if (Array.isArray(data)) return data;
-    if (typeof data === 'string') {
-      try {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) return parsed;
-        if (parsed.itinerary && Array.isArray(parsed.itinerary)) return parsed.itinerary;
-      } catch (e) {
-        return [];
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to save your trip.");
       }
-    }
-    if (typeof data === 'object') {
-      if (Array.isArray(data.itinerary)) return data.itinerary;
-      if (Array.isArray(data.days)) return data.days;
-    }
-    return [];
-  };
 
-  const daysList = getDaysArray(itinerary);
+      const savedTrip = {
+        id: result.data?.[0]?.id || `${Date.now()}`,
+        destination: itinerary.destination || form.destination,
+        title: itinerary.title || form.destination,
+        days: itinerary.days.length,
+        itinerary,
+      };
+
+      setSavedTrips((previous) => [savedTrip, ...previous]);
+      setNotice("Trip saved successfully!");
+    } catch (err) {
+      setError(err.message || "Unable to save your trip.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function loadTrip(trip) {
+    setItinerary(trip.itinerary);
+    setNotice(`Viewing trip: ${trip.title}`);
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function updateActivity(dayIndex, activityIndex, field, value) {
+    setItinerary((previous) => {
+      if (!previous) return previous;
+
+      const days = previous.days.map((day, index) => {
+        if (index !== dayIndex) return day;
+
+        const activities = day.activities.map((activity, itemIndex) =>
+          itemIndex === activityIndex
+            ? { ...activity, [field]: value }
+            : activity
+        );
+
+        return { ...day, activities };
+      });
+
+      return { ...previous, days };
+    });
+
+    setNotice("Activity edited locally. Save the updated trip to persist it.");
+  }
+
+  const activityCost = (activity) =>
+    Number(activity.estimated_cost ?? 0);
 
   return (
-    <div style={styles.page}>
-      <header style={styles.navbar}>
-        <div style={styles.navBrand}>
-          <span style={styles.brandIcon}>✈️</span>
-          <span style={styles.brandText}>VoyageAI</span>
-        </div>
-        <div style={styles.navTag}>Smart Itinerary Generator</div>
-      </header>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <a className="brand" href="#home">
+          <span className="brand-icon">✈</span>
+          <span>WanderWise</span>
+        </a>
 
-      <div style={styles.mainContainer}>
-        <div style={styles.heroSection}>
-          <h1 style={styles.heroTitle}>Discover Your Next Adventure</h1>
-          <p style={styles.heroSubtitle}>
-            Customized day-by-day travel plans, cost breakdowns, and activity schedules generated instantly by AI.
-          </p>
-        </div>
+        <p className="nav-label">WORKSPACE</p>
 
-        <div style={styles.card}>
-          <form onSubmit={handleSubmit} style={styles.formGrid}>
-            <div style={styles.inputGroupFull}>
-              <label style={styles.label}>Destination City or Country</label>
-              <input 
-                type="text" 
-                name="destination" 
-                placeholder="e.g., Kyoto, Japan or Paris, France" 
-                value={formData.destination} 
-                onChange={handleChange} 
-                required 
-                style={styles.input}
-              />
-            </div>
+        <a className="nav-item active" href="#home">
+          <span>▦</span> Dashboard
+        </a>
 
-            <div style={styles.inputGroup}>
-              <label style={styles.label}>Duration (Days)</label>
-              <input 
-                type="number" 
-                name="days" 
-                placeholder="e.g., 3" 
-                min="1" 
-                max="14"
-                value={formData.days} 
-                onChange={handleChange} 
-                required 
-                style={styles.input}
-              />
-            </div>
+        <a className="nav-item" href="#trip-builder">
+          <span>＋</span> Create a trip
+        </a>
 
-            <div style={styles.inputGroup}>
-              <label style={styles.label}>Budget Category</label>
-              <select name="budget" value={formData.budget} onChange={handleChange} style={styles.select}>
-                <option value="Budget">💵 Budget Friendly</option>
-                <option value="Moderate">💳 Moderate Comfort</option>
-                <option value="Luxury">💎 Luxury Experience</option>
-              </select>
-            </div>
+        <a className="nav-item" href="#itinerary">
+          <span>☷</span> Itinerary
+        </a>
 
-            <div style={styles.inputGroup}>
-              <label style={styles.label}>Travel Style</label>
-              <select name="travelers" value={formData.travelers} onChange={handleChange} style={styles.select}>
-                <option value="Solo">🧍 Solo Explorer</option>
-                <option value="Couple">👫 Couple Getaway</option>
-                <option value="Family">👨‍👩‍👧‍👦 Family Trip</option>
-                <option value="Friends">🎒 Group of Friends</option>
-              </select>
-            </div>
+        <a className="nav-item" href="#saved-trips">
+          <span>♡</span> Saved trips
+        </a>
 
-            <div style={styles.inputGroup}>
-              <label style={styles.label}>Interests & Focus</label>
-              <input 
-                type="text" 
-                name="interests" 
-                placeholder="e.g., Food, Temples, Hiking" 
-                value={formData.interests} 
-                onChange={handleChange} 
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.inputGroupFull}>
-              <button type="submit" disabled={loading} style={loading ? styles.buttonDisabled : styles.button}>
-                {loading ? "✨ Crafting Your Custom Itinerary..." : "🚀 Generate Trip Itinerary"}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {error && (
-          <div style={styles.errorBox}>
-            <strong>⚠️ Planning Notice:</strong> {error}
+        <div className="sidebar-footer">
+          <span className="avatar">W</span>
+          <div>
+            <strong>Travel planner</strong>
+            <small>Your next adventure awaits</small>
           </div>
-        )}
+        </div>
+      </aside>
+
+      <main className="main-content" id="home">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">YOUR PERSONAL TRAVEL ASSISTANT</p>
+            <h1>Explore more. Plan less.</h1>
+            <p className="muted">
+              Create thoughtful trips tailored to your style and budget.
+            </p>
+          </div>
+          <a className="topbar-button" href="#trip-builder">
+            + New trip
+          </a>
+        </header>
+
+        <section className="welcome-banner">
+          <div>
+            <span className="banner-tag">YOUR NEXT ADVENTURE STARTS HERE</span>
+            <h2>Where will you go next?</h2>
+            <p>
+              Tell us what you love. Let AI help turn your travel ideas
+              into a day-by-day plan.
+            </p>
+            <a href="#trip-builder" className="banner-button">
+              Plan my trip →
+            </a>
+          </div>
+          <div className="banner-art" aria-hidden="true">
+            <span className="sun">☀</span>
+            <span className="mountain mountain-back" />
+            <span className="mountain mountain-front" />
+            <span className="plane">✈</span>
+          </div>
+        </section>
+
+        <section className="stats-grid">
+          <article className="stat-card">
+            <span className="stat-icon">✦</span>
+            <p>AI trip planner</p>
+            <h3>Personalized</h3>
+            <small>Plans based on your interests</small>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-icon">₹</span>
+            <p>Budget assistant</p>
+            <h3>Cost-aware</h3>
+            <small>Estimated expenses at a glance</small>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-icon">☷</span>
+            <p>Your workspace</p>
+            <h3>{savedTrips.length} saved trips</h3>
+            <small>Saved in this browser session</small>
+          </article>
+        </section>
+
+        <section className="content-grid">
+          <section className="panel trip-form-panel" id="trip-builder">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">LET'S PLAN</p>
+                <h2>Create your trip</h2>
+              </div>
+              <span className="step-badge">AI powered</span>
+            </div>
+
+            <form onSubmit={generateTrip} className="trip-form">
+              <label>
+                Destination
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  maxLength={120}
+                  placeholder="e.g. Jaipur, Rajasthan"
+                  value={form.destination}
+                  onChange={(event) =>
+                    updateForm("destination", event.target.value)
+                  }
+                />
+              </label>
+
+              <div className="form-row">
+                <label>
+                  Start date
+                  <input
+                    type="date"
+                    required
+                    value={form.start_date}
+                    onChange={(event) =>
+                      updateForm("start_date", event.target.value)
+                    }
+                  />
+                </label>
+
+                <label>
+                  End date
+                  <input
+                    type="date"
+                    required
+                    min={form.start_date || undefined}
+                    value={form.end_date}
+                    onChange={(event) =>
+                      updateForm("end_date", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label>
+                  Total budget
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    max="100000000"
+                    value={form.budget}
+                    onChange={(event) =>
+                      updateForm("budget", event.target.value)
+                    }
+                  />
+                </label>
+
+                <label>
+                  Currency
+                  <select
+                    value={form.currency}
+                    onChange={(event) =>
+                      updateForm("currency", event.target.value)
+                    }
+                  >
+                    <option value="INR">INR (₹)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label>
+                  Number of travelers
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    required
+                    value={form.travelers}
+                    onChange={(event) =>
+                      updateForm("travelers", event.target.value)
+                    }
+                  />
+                </label>
+
+                <label>
+                  Travel style
+                  <select
+                    value={form.travel_style}
+                    onChange={(event) =>
+                      updateForm("travel_style", event.target.value)
+                    }
+                  >
+                    <option value="budget">Budget-friendly</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="luxury">Luxury</option>
+                    <option value="relaxed">Relaxed</option>
+                  </select>
+                </label>
+              </div>
+
+              <fieldset className="interest-fieldset">
+                <legend>What are you interested in?</legend>
+                <div className="interest-list">
+                  {interestOptions.map((interest) => (
+                    <label className="interest-chip" key={interest}>
+                      <input
+                        type="checkbox"
+                        checked={form.interests.includes(interest)}
+                        onChange={() => toggleInterest(interest)}
+                      />
+                      <span>{interest}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={loading}
+              >
+                {loading ? "✦ Creating your itinerary..." : "✦ Generate itinerary"}
+              </button>
+            </form>
+
+            {error && (
+              <div className="message error-message" role="alert">
+                {error}
+              </div>
+            )}
+
+            {notice && (
+              <div className="message success-message" role="status">
+                {notice}
+              </div>
+            )}
+          </section>
+
+          <aside className="panel tips-panel">
+            <p className="eyebrow">TRAVEL SMARTER</p>
+            <h2>Make every day count.</h2>
+            <p className="muted">
+              A few things that help us create a better itinerary.
+            </p>
+
+            <div className="tip-item">
+              <span>01</span>
+              <div>
+                <strong>Set a realistic budget</strong>
+                <p>Include meals, transport, and activities.</p>
+              </div>
+            </div>
+
+            <div className="tip-item">
+              <span>02</span>
+              <div>
+                <strong>Choose your interests</strong>
+                <p>Your preferences shape your daily plan.</p>
+              </div>
+            </div>
+
+            <div className="tip-item">
+              <span>03</span>
+              <div>
+                <strong>Leave room to explore</strong>
+                <p>Flexible schedules make travel more enjoyable.</p>
+              </div>
+            </div>
+
+            <div className="privacy-note">
+              <span>✦</span>
+              AI recommendations are estimates. Verify prices, routes,
+              and opening hours before your trip.
+            </div>
+          </aside>
+        </section>
 
         {itinerary && (
-          <div style={styles.resultsWrapper}>
-            <div style={styles.resultHeader}>
+          <section className="panel itinerary-panel" id="itinerary">
+            <div className="section-heading itinerary-heading">
               <div>
-                <h2 style={styles.resultTitle}>🗺️ Your Personalized Plan</h2>
-                <p style={styles.resultMeta}>{formData.destination} • {formData.days} Days • {formData.budget} Style</p>
+                <p className="eyebrow">YOUR PERSONALIZED PLAN</p>
+                <h2>{itinerary.title || itinerary.destination}</h2>
+                <p className="muted">
+                  {itinerary.destination || form.destination} ·{" "}
+                  {itinerary.days.length} days · {form.travelers} traveler(s)
+                </p>
               </div>
-              <button onClick={handleSaveTrip} style={styles.saveBtn}>
-                💾 Save Trip
+
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={saveTrip}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "♡ Save trip"}
               </button>
             </div>
 
-            {saveStatus && <div style={styles.saveAlert}>{saveStatus}</div>}
-
-            <div style={styles.timeline}>
-              {daysList.length > 0 ? (
-                daysList.map((dayItem, idx) => (
-                  <div key={idx} style={styles.dayCard}>
-                    <div style={styles.dayBadgeRow}>
-                      <span style={styles.dayNumber}>Day {dayItem.day || idx + 1}</span>
-                      <h3 style={styles.dayHeading}>{dayItem.title || `Day ${idx + 1} Itinerary`}</h3>
-                      {dayItem.estimated_cost && (
-                        <span style={styles.costBadge}>Est: {dayItem.estimated_cost}</span>
-                      )}
-                    </div>
-
-                    <div style={styles.activityContainer}>
-                      {Array.isArray(dayItem.activities) ? (
-                        dayItem.activities.map((act, aIdx) => (
-                          <div key={aIdx} style={styles.activityRow}>
-                            <div style={styles.dotMarker}></div>
-                            <p style={styles.activityText}>{act}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <p style={styles.activityText}>{dayItem.activities}</p>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div style={styles.dayCard}>
-                  <pre style={styles.jsonOutput}>{JSON.stringify(itinerary, null, 2)}</pre>
-                </div>
-              )}
+            <div className="budget-summary">
+              <div>
+                <small>Estimated total cost</small>
+                <strong>
+                  {form.currency}{" "}
+                  {Number(
+                    itinerary.estimated_total_cost ?? 0
+                  ).toLocaleString()}
+                </strong>
+              </div>
+              <div>
+                <small>Your total budget</small>
+                <strong>
+                  {form.currency}{" "}
+                  {Number(form.budget).toLocaleString()}
+                </strong>
+              </div>
+              <div>
+                <small>Number of days</small>
+                <strong>{itinerary.days.length}</strong>
+              </div>
             </div>
-          </div>
+
+            {itinerary.budget_notes?.length > 0 && (
+              <div className="budget-notes">
+                <strong>Budget tips</strong>
+                <ul>
+                  {itinerary.budget_notes.map((note, index) => (
+                    <li key={index}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {itinerary.days.map((day, dayIndex) => (
+              <article className="day-card" key={`${day.date}-${day.day}`}>
+                <div className="day-heading">
+                  <div className="day-number">
+                    {String(day.day).padStart(2, "0")}
+                  </div>
+                  <div>
+                    <p className="eyebrow">DAY {day.day}</p>
+                    <h3>{day.theme || "Explore and discover"}</h3>
+                    <p className="muted">{day.date}</p>
+                  </div>
+                  <span className="day-cost">
+                    {form.currency}{" "}
+                    {day.activities
+                      .reduce((sum, activity) => sum + activityCost(activity), 0)
+                      .toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="activities-list">
+                  {(day.activities || []).map((activity, activityIndex) => (
+                    <div
+                      className="activity-card"
+                      key={`${day.day}-${activityIndex}`}
+                    >
+                      <div className="activity-time">
+                        {activity.time || "Flexible"}
+                      </div>
+
+                      <div className="activity-details">
+                        <input
+                          aria-label="Activity name"
+                          className="activity-name-input"
+                          value={activity.name || ""}
+                          onChange={(event) =>
+                            updateActivity(
+                              dayIndex,
+                              activityIndex,
+                              "name",
+                              event.target.value
+                            )
+                          }
+                        />
+
+                        <p>{activity.description}</p>
+
+                        <div className="activity-meta">
+                          <span>
+                            {activity.category || "Activity"}
+                          </span>
+                          <span>
+                            {activity.duration_minutes || 0} min
+                          </span>
+                          <span>
+                            {form.currency}{" "}
+                            {activityCost(activity).toLocaleString()}
+                          </span>
+                        </div>
+
+                        {activity.transport && (
+                          <small className="transport-note">
+                            ↗ {activity.transport}
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+
+            {itinerary.travel_tips?.length > 0 && (
+              <div className="travel-tips">
+                <h3>Helpful travel tips</h3>
+                <ul>
+                  {itinerary.travel_tips.map((tip, index) => (
+                    <li key={index}>{tip}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={saveTrip}
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save updated itinerary"}
+            </button>
+          </section>
         )}
-      </div>
+
+        <section className="panel saved-panel" id="saved-trips">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">YOUR COLLECTION</p>
+              <h2>Recently saved trips</h2>
+            </div>
+            <span className="step-badge">{savedTrips.length} trips</span>
+          </div>
+
+          {savedTrips.length === 0 ? (
+            <div className="empty-state">
+              <span className="empty-icon">✈</span>
+              <h3>Your next adventure belongs here.</h3>
+              <p>
+                Generate an itinerary and press Save Trip to add it to
+                this list.
+              </p>
+            </div>
+          ) : (
+            <div className="saved-trips-grid">
+              {savedTrips.map((trip) => (
+                <article className="saved-trip-card" key={trip.id}>
+                  <span className="saved-trip-icon">✦</span>
+                  <h3>{trip.title}</h3>
+                  <p>{trip.destination}</p>
+                  <small>{trip.days} days</small>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => loadTrip(trip)}
+                  >
+                    View itinerary
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <footer className="footer">
+          WanderWise · Personalized travel planning with AI
+        </footer>
+      </main>
     </div>
   );
 }
-
-const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', paddingBottom: '60px' },
-  navbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 32px', backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 100 },
-  navBrand: { display: 'flex', alignItems: 'center', gap: '10px' },
-  brandIcon: { fontSize: '22px' },
-  brandText: { fontSize: '18px', fontWeight: '800', color: '#0f172a', letterSpacing: '-0.5px' },
-  navTag: { fontSize: '13px', fontWeight: '600', color: '#6366f1', backgroundColor: '#e0e7ff', padding: '4px 12px', borderRadius: '20px' },
-  mainContainer: { maxWidth: '800px', margin: '40px auto 0', padding: '0 20px' },
-  heroSection: { textAlign: 'center', marginBottom: '32px' },
-  heroTitle: { fontSize: '36px', fontWeight: '800', color: '#0f172a', marginBottom: '10px', letterSpacing: '-1px' },
-  heroSubtitle: { fontSize: '16px', color: '#64748b', maxWidth: '600px', margin: '0 auto', lineHeight: '1.5' },
-  card: { backgroundColor: '#ffffff', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 30px -5px rgba(0, 0, 0, 0.05)', border: '1px solid #e2e8f0' },
-  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' },
-  inputGroupFull: { gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '8px' },
-  inputGroup: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  label: { fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  input: { padding: '14px 16px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '15px', backgroundColor: '#f8fafc', outline: 'none', color: '#0f172a' },
-  select: { padding: '14px 16px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '15px', backgroundColor: '#f8fafc', outline: 'none', color: '#0f172a', cursor: 'pointer' },
-  button: { padding: '16px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#ffffff', fontSize: '16px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)', width: '100%', marginTop: '10px' },
-  buttonDisabled: { padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: '#94a3b8', color: '#ffffff', fontSize: '16px', fontWeight: '700', cursor: 'not-allowed', width: '100%', marginTop: '10px' },
-  errorBox: { marginTop: '24px', padding: '16px 20px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', color: '#991b1b', fontSize: '14px', lineHeight: '1.5' },
-  resultsWrapper: { marginTop: '40px' },
-  resultHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
-  resultTitle: { fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: 0 },
-  resultMeta: { fontSize: '14px', color: '#64748b', margin: '4px 0 0 0', fontWeight: '500' },
-  saveBtn: { padding: '10px 20px', borderRadius: '10px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '700', cursor: 'pointer', fontSize: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' },
-  saveAlert: { padding: '12px 16px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: '10px', marginBottom: '20px', fontSize: '14px', fontWeight: '500' },
-  timeline: { display: 'flex', flexDirection: 'column', gap: '20px' },
-  dayCard: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0' },
-  dayBadgeRow: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' },
-  dayNumber: { backgroundColor: '#e0e7ff', color: '#4338ca', fontWeight: '800', padding: '6px 12px', borderRadius: '8px', fontSize: '13px' },
-  dayHeading: { fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0, flex: 1 },
-  costBadge: { backgroundColor: '#f1f5f9', color: '#475569', fontSize: '13px', fontWeight: '600', padding: '6px 12px', borderRadius: '8px' },
-  activityContainer: { display: 'flex', flexDirection: 'column', gap: '12px', paddingLeft: '4px' },
-  activityRow: { display: 'flex', alignItems: 'flex-start', gap: '14px' },
-  dotMarker: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366f1', marginTop: '7px', flexShrink: 0 },
-  activityText: { fontSize: '15px', color: '#334155', lineHeight: '1.6', margin: 0 },
-  jsonOutput: { whiteSpace: 'pre-wrap', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', fontSize: '13px', color: '#334155' }
-};
