@@ -3,9 +3,9 @@ import { useState } from "react";
 import "./App.css";
 
 const API_URL = (
-  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
-).replace(/\/$/, "");
-
+  import.meta.env.VITE_API_URL ||
+  "https://travel-itinerary-planner-chi.vercel.app"
+).replace(/\/+$/, "");
 const initialForm = {
   destination: "",
   start_date: "",
