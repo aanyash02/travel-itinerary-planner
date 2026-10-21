@@ -81,8 +81,26 @@ async def generate_itinerary(request: ItineraryRequest):
     """
 
     try:
-        # Updated to use gemini-1.5-flash
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # THE ULTIMATE FIX: Dynamically fetch allowed models for your API key
+        available_models = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        if not available_models:
+            raise HTTPException(status_code=500, detail="No generative models authorized for this API key.")
+
+        # Automatically pick the best available 'flash' model, or fallback to whatever is available
+        target_model_name = available_models[0]
+        for m in available_models:
+            if "flash" in m.lower() and "vision" not in m.lower():
+                target_model_name = m
+                break
+        
+        # Clean the prefix for the GenerativeModel class
+        target_model_name = target_model_name.replace("models/", "")
+
+        model = genai.GenerativeModel(target_model_name)
         response = model.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}
@@ -102,13 +120,14 @@ async def generate_itinerary(request: ItineraryRequest):
             "status": "success",
             "destination": request.destination,
             "days": request.days,
-            "itinerary": itinerary_data
+            "itinerary": itinerary_data,
+            "model_used": target_model_name # Logs exactly which model succeeded
         }
 
     except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to parse Gemini AI response as JSON: {str(e)}"
+            detail=f"Failed to parse AI response as JSON. Try again."
         )
     except Exception as e:
         raise HTTPException(
