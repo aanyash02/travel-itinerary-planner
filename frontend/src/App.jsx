@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-// The exact backend URL that successfully connected earlier
-const BACKEND_URL = "https://travel-itinerary-planner-chi.vercel.app";
-
 export default function App() {
   const [formData, setFormData] = useState({
     destination: '',
@@ -39,8 +36,11 @@ export default function App() {
     };
 
     try {
-      // Direct connection to your live backend domain
-      const response = await axios.post(`${BACKEND_URL}/api/generate-itinerary`, payload);
+      // ABSOLUTE URL HARDCODED HERE TO PREVENT 404 ERRORS
+      const response = await axios.post(
+        "https://travel-itinerary-planner-chi.vercel.app/api/generate-itinerary", 
+        payload
+      );
       setItinerary(response.data.itinerary);
     } catch (err) {
       console.error("API Error:", err);
@@ -54,7 +54,8 @@ export default function App() {
   const handleSaveTrip = async () => {
     try {
       setSaveStatus("Saving...");
-      await axios.post(`${BACKEND_URL}/api/save-trip`, {
+      // ABSOLUTE URL HARDCODED HERE AS WELL
+      await axios.post("https://travel-itinerary-planner-chi.vercel.app/api/save-trip", {
         destination: formData.destination,
         days: parseInt(formData.days, 10),
         itinerary_data: { itinerary }
@@ -90,7 +91,6 @@ export default function App() {
     <div style={styles.pageBackground}>
       <div style={styles.container}>
         
-        {/* Header */}
         <div style={styles.header}>
           <div style={styles.badge}>✈️ AI Powered Travel Companion</div>
           <h1 style={styles.title}>AI Travel Itinerary Planner</h1>
@@ -99,10 +99,8 @@ export default function App() {
           </p>
         </div>
 
-        {/* Input Form Card */}
         <div style={styles.card}>
           <form onSubmit={handleSubmit} style={styles.form}>
-            
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Destination</label>
               <input 
@@ -172,14 +170,12 @@ export default function App() {
           </form>
         </div>
 
-        {/* Error Notification */}
         {error && (
           <div style={styles.errorBox}>
             <strong>Notice:</strong> {error}
           </div>
         )}
 
-        {/* Itinerary Display */}
         {itinerary && (
           <div style={{ marginTop: '36px' }}>
             <div style={styles.resultHeader}>
