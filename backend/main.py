@@ -57,8 +57,8 @@ async def generate_itinerary(request: ItineraryRequest):
     - "estimated_cost": string or number
     """
 
-    # Updated to use gemini-3.0-flash as required by the API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key={GEMINI_API_KEY}"
+    # Using the stable, officially supported gemini-1.5-flash model
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -90,6 +90,9 @@ async def generate_itinerary(request: ItineraryRequest):
             itinerary_data = json.loads(raw_text.strip())
             return {"status": "success", "itinerary": itinerary_data}
 
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise HTTPException(status_code=500, detail=f"HTTP Error {e.code}: {error_body}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini API Error: {str(e)}")
 
