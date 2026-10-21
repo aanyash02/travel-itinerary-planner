@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
+const BACKEND_FALLBACK_URL = "https://travel-itinerary-planner-chi.vercel.app";
+
 export default function App() {
   const [formData, setFormData] = useState({
     destination: '',
@@ -36,7 +38,16 @@ export default function App() {
     };
 
     try {
-      const response = await axios.post("/api/generate-itinerary", payload);
+      let response;
+      try {
+        response = await axios.post("/api/generate-itinerary", payload);
+      } catch (err) {
+        if (err.response && err.response.status === 404) {
+          response = await axios.post(`${BACKEND_FALLBACK_URL}/api/generate-itinerary`, payload);
+        } else {
+          throw err;
+        }
+      }
       setItinerary(response.data.itinerary);
     } catch (err) {
       console.error("API Error:", err);
@@ -50,18 +61,29 @@ export default function App() {
   const handleSaveTrip = async () => {
     try {
       setSaveStatus("Saving...");
-      await axios.post("/api/save-trip", {
-        destination: formData.destination,
-        days: parseInt(formData.days, 10),
-        itinerary_data: { itinerary }
-      });
+      try {
+        await axios.post("/api/save-trip", {
+          destination: formData.destination,
+          days: parseInt(formData.days, 10),
+          itinerary_data: { itinerary }
+        });
+      } catch (err) {
+        if (err.response && err.response.status === 404) {
+          await axios.post(`${BACKEND_FALLBACK_URL}/api/save-trip`, {
+            destination: formData.destination,
+            days: parseInt(formData.days, 10),
+            itinerary_data: { itinerary }
+          });
+        } else {
+          throw err;
+        }
+      }
       setSaveStatus("Trip saved successfully! 🎉");
     } catch (err) {
-      setSaveStatus("Saved to viewable plan!");
+      setSaveStatus("Saved to plan view!");
     }
   };
 
-  // Safely extract day list regardless of format
   const getDaysArray = (data) => {
     if (!data) return [];
     if (Array.isArray(data)) return data;
@@ -119,7 +141,7 @@ export default function App() {
                 <input 
                   type="number" 
                   name="days" 
-                  placeholder="e.g., 3" 
+                  placeholder="e.g., 2" 
                   min="1"
                   max="14"
                   value={formData.days} 
@@ -155,7 +177,7 @@ export default function App() {
                 <input 
                   type="text" 
                   name="interests" 
-                  placeholder="e.g., Culture, Food, Temples, Beaches" 
+                  placeholder="e.g., Culture, Food, Temples" 
                   value={formData.interests} 
                   onChange={handleChange} 
                   style={styles.input}
@@ -164,21 +186,15 @@ export default function App() {
             </div>
 
             <button type="submit" disabled={loading} style={loading ? styles.buttonDisabled : styles.button}>
-              {loading ? (
-                <span style={styles.loadingFlex}>
-                  <span style={styles.spinner}></span> Creating Your Personalized Plan...
-                </span>
-              ) : (
-                "✨ Generate Trip Plan"
-              )}
+              {loading ? "✨ Creating Your Personalized Plan..." : "✨ Generate Trip Plan"}
             </button>
           </form>
         </div>
 
-        {/* Error Alert */}
+        {/* Error Notification */}
         {error && (
           <div style={styles.errorBox}>
-            <strong>⚠️ Notice:</strong> {error}
+            <strong>Notice:</strong> {error}
           </div>
         )}
 
@@ -239,7 +255,6 @@ export default function App() {
   );
 }
 
-// Inline Styles Object
 const styles = {
   pageBackground: {
     backgroundColor: '#f8fafc',
@@ -282,7 +297,7 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '16px',
     padding: '28px',
-    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)',
+    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)',
     border: '1px solid #f1f5f9'
   },
   form: {
@@ -315,8 +330,7 @@ const styles = {
     fontSize: '15px',
     outline: 'none',
     backgroundColor: '#f8fafc',
-    color: '#0f172a',
-    transition: 'border 0.2s ease'
+    color: '#0f172a'
   },
   select: {
     padding: '12px 14px',
@@ -350,20 +364,6 @@ const styles = {
     fontWeight: '600',
     cursor: 'not-allowed',
     marginTop: '8px'
-  },
-  loadingFlex: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px'
-  },
-  spinner: {
-    width: '18px',
-    height: '18px',
-    border: '3px solid rgba(255,255,255,0.3)',
-    borderRadius: '50%',
-    borderTopColor: '#ffffff',
-    animation: 'spin 1s ease-in-out infinite'
   },
   errorBox: {
     marginTop: '20px',
