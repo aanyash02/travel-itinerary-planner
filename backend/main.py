@@ -52,8 +52,8 @@ def health_check():
     }
 
 def call_gemini_api(prompt_text: str) -> str:
-    """Direct REST call to Google Gemini API using standard urllib."""
-    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    """Direct REST call using active Gemini models."""
+    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash"]
     last_error = ""
 
     for model_name in models_to_try:
@@ -66,7 +66,7 @@ def call_gemini_api(prompt_text: str) -> str:
             "generationConfig": {
                 "response_mime_type": "application/json",
                 "temperature": 0.7,
-                "maxOutputTokens": 1000
+                "maxOutputTokens": 1500
             }
         }
 
@@ -78,7 +78,7 @@ def call_gemini_api(prompt_text: str) -> str:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 text_response = result["candidates"][0]["content"]["parts"][0]["text"]
                 return text_response
