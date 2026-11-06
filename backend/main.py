@@ -286,6 +286,7 @@ def generate_itinerary(trip: TripRequest):
 
 @app.post("/api/save-trip")
 def save_trip(request: SaveTripRequest):
+
     if supabase is None:
         raise HTTPException(
             status_code=503,
@@ -299,6 +300,7 @@ def save_trip(request: SaveTripRequest):
                 {
                     "destination": request.destination,
                     "days": request.days,
+                    "duration": request.days,
                     "itinerary": request.itinerary_data,
                 }
             )
@@ -307,6 +309,7 @@ def save_trip(request: SaveTripRequest):
 
         return {
             "status": "success",
+            "message": "Trip saved successfully!",
             "data": result.data,
         }
 
