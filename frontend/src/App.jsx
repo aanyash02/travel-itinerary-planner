@@ -102,51 +102,72 @@ export default function App() {
     }
   }
 
-  async function saveTrip() {
-    if (!itinerary) {
-      setError("Generate an itinerary before saving.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await fetch(`${API_URL}/api/save-trip`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          destination: itinerary.destination || form.destination,
-          days: itinerary.days.length,
-          itinerary_data: itinerary,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.detail || "Unable to save your trip.");
-      }
-
-      const savedTrip = {
-        id: result.data?.[0]?.id || `${Date.now()}`,
-        destination: itinerary.destination || form.destination,
-        title: itinerary.title || form.destination,
-        days: itinerary.days.length,
-        itinerary,
-      };
-
-      setSavedTrips((previous) => [savedTrip, ...previous]);
-      setNotice("Trip saved successfully!");
-    } catch (err) {
-      setError(err.message || "Unable to save your trip.");
-    } finally {
-      setSaving(false);
-    }
+  
+async function saveTrip() {
+  if (!itinerary) {
+    setError("Generate an itinerary before saving.");
+    return;
   }
+
+  setSaving(true);
+  setError("");
+  setNotice("");
+
+  const tripBudget = Number(itinerary.budget ?? form.budget);
+  const tripTravelers = Number(itinerary.travelers ?? form.travelers);
+  const tripCurrency = itinerary.currency || form.currency;
+  const tripInterests = itinerary.interests || form.interests;
+
+  const completeItinerary = {
+    ...itinerary,
+    budget: tripBudget,
+    currency: tripCurrency,
+    travelers: tripTravelers,
+    interests: tripInterests,
+  };
+
+  try {
+    const response = await fetch(`${API_URL}/api/save-trip`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        destination: itinerary.destination || form.destination,
+        days: itinerary.days.length,
+        budget: tripBudget,
+        currency: tripCurrency,
+        travelers: tripTravelers,
+        interests: tripInterests,
+        itinerary_data: completeItinerary,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.detail || "Unable to save your trip."
+      );
+    }
+
+    const savedTrip = {
+      id: result.data?.[0]?.id || `${Date.now()}`,
+      destination: itinerary.destination || form.destination,
+      title: itinerary.title || itinerary.destination || form.destination,
+      days: itinerary.days.length,
+      itinerary: completeItinerary,
+    };
+
+    setSavedTrips((previous) => [savedTrip, ...previous]);
+    setNotice("Trip saved successfully to Supabase!");
+  } catch (err) {
+    setError(err.message || "Unable to save your trip.");
+  } finally {
+    setSaving(false);
+  }
+}
+
 
   function loadTrip(trip) {
     setItinerary(trip.itinerary);

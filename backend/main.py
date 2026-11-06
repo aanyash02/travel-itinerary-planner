@@ -12,7 +12,7 @@ from supabase import create_client, Client
 
 
 # --------------------------------------------------
-# 1. Create the FastAPI application
+# 1. FastAPI application
 # --------------------------------------------------
 
 app = FastAPI(
@@ -23,7 +23,7 @@ app = FastAPI(
 
 
 # --------------------------------------------------
-# 2. Configure CORS for the frontend
+# 2. CORS configuration
 # --------------------------------------------------
 
 allowed_origins = [
@@ -52,7 +52,7 @@ app.add_middleware(
 
 
 # --------------------------------------------------
-# 3. Configure Supabase
+# 3. Supabase configuration
 # --------------------------------------------------
 
 supabase: Client | None = None
@@ -70,7 +70,7 @@ if supabase_url and supabase_key:
 
 
 # --------------------------------------------------
-# 4. Validate incoming trip requests
+# 4. Request models
 # --------------------------------------------------
 
 class TripRequest(BaseModel):
@@ -97,11 +97,15 @@ class TripRequest(BaseModel):
 class SaveTripRequest(BaseModel):
     destination: str = Field(min_length=2, max_length=120)
     days: int = Field(ge=1, le=31)
+    budget: float = Field(gt=0, le=100_000_000)
+    currency: str = "INR"
+    travelers: int = Field(ge=1, le=50)
+    interests: list[str] = Field(default_factory=list, max_length=15)
     itinerary_data: dict[str, Any]
 
 
 # --------------------------------------------------
-# 5. Basic API and health-check routes
+# 5. Basic API routes
 # --------------------------------------------------
 
 @app.get("/")
@@ -118,7 +122,92 @@ def health():
 
 
 # --------------------------------------------------
-# 6. Generate an itinerary using Google Gemini
+# 6. Convert itinerary JSON into readable Markdown
+# --------------------------------------------------
+
+def itinerary_to_markdown(itinerary: dict[str, Any]) -> str:
+    lines = []
+
+    destination = itinerary.get("destination", "Travel itinerary")
+
+    lines.append(f"# Travel Itinerary: {destination}")
+    lines.append("")
+
+    if itinerary.get("summary"):
+        lines.append("## Overview")
+        lines.append(str(itinerary["summary"]))
+        lines.append("")
+
+    lines.append("## Daily Plan")
+    lines.append("")
+
+    days = itinerary.get("days", [])
+
+    for day in days:
+        if not isinstance(day, dict):
+            continue
+
+        day_number = day.get("day", "")
+        day_title = (
+            day.get("title")
+            or day.get("theme")
+            or f"Day {day_number}"
+        )
+
+        lines.append(f"### Day {day_number}: {day_title}")
+
+        if day.get("date"):
+            lines.append(f"Date: {day['date']}")
+
+        lines.append("")
+
+        activities = day.get("activities", [])
+
+        for activity in activities:
+            if not isinstance(activity, dict):
+                continue
+
+            name = activity.get("name", "Activity")
+            lines.append(f"- **{name}**")
+
+            if activity.get("time"):
+                lines.append(f"  - Time: {activity['time']}")
+
+            if activity.get("description"):
+                lines.append(
+                    f"  - Description: {activity['description']}"
+                )
+
+            location = activity.get("location")
+            if location:
+                lines.append(f"  - Location: {location}")
+
+            transport = (
+                activity.get("transportation")
+                or activity.get("transport")
+            )
+            if transport:
+                lines.append(f"  - Transportation: {transport}")
+
+            cost = activity.get("estimated_cost")
+            if cost is not None:
+                lines.append(f"  - Estimated cost: {cost}")
+
+        lines.append("")
+
+    tips = itinerary.get("travel_tips", [])
+
+    if tips:
+        lines.append("## Travel Tips")
+        for tip in tips:
+            lines.append(f"- {tip}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+# --------------------------------------------------
+# 7. Generate an itinerary using Google Gemini
 # --------------------------------------------------
 
 def generate_with_gemini(trip: TripRequest) -> dict:
@@ -137,7 +226,7 @@ def generate_with_gemini(trip: TripRequest) -> dict:
     prompt = f"""
 You are WanderWise, an expert personalized travel planner.
 
-Create a practical travel itinerary using the following trip details:
+Create a practical travel itinerary using these details:
 
 Destination: {trip.destination}
 Start date: {trip.start_date.isoformat()}
@@ -150,16 +239,15 @@ Interests: {", ".join(trip.interests) if trip.interests else "General sightseein
 
 Requirements:
 1. Return exactly {days_count} itinerary days.
-2. Personalize the plan to the destination, budget, travel style, and interests.
+2. Personalize the plan to the destination, budget, style, and interests.
 3. Give each day a date, a short title, and an activities list.
-4. Each activity should include a time, name, description, estimated cost,
-   and location.
-5. Include practical local transportation suggestions.
-6. Include food recommendations and useful travel tips.
-7. Estimate costs in {trip.currency}.
-8. Keep the estimated total trip cost within the supplied budget when feasible.
-9. Do not claim that reservations or bookings have been made.
-10. Return valid JSON only, without Markdown fences or extra commentary.
+4. Each activity must include a time, name, description, estimated cost,
+   location, and transportation suggestion.
+5. Include food recommendations and useful travel tips.
+6. Estimate costs in {trip.currency}.
+7. Keep estimated total cost within the supplied budget when feasible.
+8. Do not claim that reservations or bookings have been made.
+9. Return valid JSON only, without Markdown fences or commentary.
 
 Use this JSON structure:
 {{
@@ -230,7 +318,6 @@ Use this JSON structure:
 
         text = result["candidates"][0]["content"]["parts"][0]["text"]
         itinerary = json.loads(text)
-        itinerary["budget"] = trip.budget
 
         days = itinerary.get("days")
 
@@ -243,6 +330,14 @@ Use this JSON structure:
 
             if not isinstance(day.get("activities"), list):
                 raise ValueError("AI returned an invalid activity list")
+
+        # Preserve the original trip information in the itinerary.
+        itinerary["budget"] = trip.budget
+        itinerary["currency"] = trip.currency
+        itinerary["travelers"] = trip.travelers
+        itinerary["interests"] = trip.interests
+        itinerary["start_date"] = trip.start_date.isoformat()
+        itinerary["end_date"] = trip.end_date.isoformat()
 
         return itinerary
 
@@ -267,7 +362,7 @@ Use this JSON structure:
 
 
 # --------------------------------------------------
-# 7. Generate-trip API endpoints
+# 8. Generate-trip API endpoints
 # --------------------------------------------------
 
 @app.post("/api/trips/generate")
@@ -282,7 +377,7 @@ def generate_itinerary(trip: TripRequest):
 
 
 # --------------------------------------------------
-# 8. Save a trip to Supabase
+# 9. Save a trip to Supabase
 # --------------------------------------------------
 
 @app.post("/api/save-trip")
@@ -295,25 +390,28 @@ def save_trip(request: SaveTripRequest):
         )
 
     try:
-        budget = request.itinerary_data.get("budget")
+        markdown = itinerary_to_markdown(request.itinerary_data)
 
-        if budget is None:
+        if not markdown:
             raise HTTPException(
                 status_code=400,
-                detail="Trip budget is missing. Please generate the itinerary again.",
+                detail="The itinerary is empty and cannot be saved.",
             )
+
+        trip_record = {
+            "destination": request.destination,
+            "duration": request.days,
+            "budget": f"{request.budget:g} {request.currency}",
+            "travelers": str(request.travelers),
+            "interests": ", ".join(request.interests),
+            "itinerary_markdown": markdown,
+            "days": request.days,
+            "itinerary": request.itinerary_data,
+        }
 
         result = (
             supabase.table("trips")
-            .insert(
-                {
-                    "destination": request.destination,
-                    "days": request.days,
-                    "duration": request.days,
-                    "budget": budget,
-                    "itinerary": request.itinerary_data,
-                }
-            )
+            .insert(trip_record)
             .execute()
         )
 
@@ -331,5 +429,5 @@ def save_trip(request: SaveTripRequest):
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to save the trip",
+            detail="Unable to save the trip. Check the backend logs.",
         ) from exc
