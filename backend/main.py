@@ -62,6 +62,7 @@ supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = (
     os.getenv("SUPABASE_SECRET_KEY")
     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_KEY")
 )
 
 if supabase_url and supabase_key:
