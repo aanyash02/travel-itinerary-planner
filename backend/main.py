@@ -308,10 +308,18 @@ Use this JSON structure:
                 "generationConfig": {
                     "responseMimeType": "application/json",
                     "temperature": 0.5,
+                    "thinkingConfig": {
+                        "thinkingBudget": 0
+                    },
                 },
             },
-            timeout=60.0,
-        )
+            timeout=httpx.Timeout(
+        connect=15.0,
+        read=120.0,
+        write=30.0,
+        pool=15.0,
+        ),
+    )
 
         response.raise_for_status()
         result = response.json()
