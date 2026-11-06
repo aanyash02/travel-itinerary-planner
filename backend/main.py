@@ -230,6 +230,7 @@ Use this JSON structure:
 
         text = result["candidates"][0]["content"]["parts"][0]["text"]
         itinerary = json.loads(text)
+        itinerary["budget"] = trip.budget
 
         days = itinerary.get("days")
 
@@ -294,6 +295,14 @@ def save_trip(request: SaveTripRequest):
         )
 
     try:
+        budget = request.itinerary_data.get("budget")
+
+        if budget is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Trip budget is missing. Please generate the itinerary again.",
+            )
+
         result = (
             supabase.table("trips")
             .insert(
@@ -301,6 +310,7 @@ def save_trip(request: SaveTripRequest):
                     "destination": request.destination,
                     "days": request.days,
                     "duration": request.days,
+                    "budget": budget,
                     "itinerary": request.itinerary_data,
                 }
             )
@@ -312,6 +322,9 @@ def save_trip(request: SaveTripRequest):
             "message": "Trip saved successfully!",
             "data": result.data,
         }
+
+    except HTTPException:
+        raise
 
     except Exception as exc:
         print("Supabase save error:", str(exc))
